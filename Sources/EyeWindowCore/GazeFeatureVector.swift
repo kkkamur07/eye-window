@@ -65,16 +65,6 @@ public struct GazeFeatureVector: Equatable, Sendable, Codable {
         )
     }
 
-    /// Squared Euclidean distance in `[gx, gy, gz, yaw, pitch]` space.
-    public func distanceSquared(to other: GazeFeatureVector) -> Double {
-        let dgx = gx - other.gx
-        let dgy = gy - other.gy
-        let dgz = gz - other.gz
-        let dyaw = yawRadians - other.yawRadians
-        let dpitch = pitchRadians - other.pitchRadians
-        return dgx * dgx + dgy * dgy + dgz * dgz + dyaw * dyaw + dpitch * dpitch
-    }
-
     /// Mahalanobis squared distance using per-dimension std from calibration spread.
     public func mahalanobisSquared(to prototype: GazeFeatureVector, spread: GazeFeatureSpread) -> Double {
         func term(_ a: Double, _ b: Double, _ sigma: Double) -> Double {
@@ -225,15 +215,6 @@ public struct CalibrationProfile: Equatable, Sendable, Codable {
             lockedDisplay: lockedDisplay,
             switchAdvantageRatio: tuning.switchAdvantageRatio
         )
-    }
-
-    /// Refined samples used for prototypes + replay scoring.
-    public static func refinedCalibrationSamples(
-        display1: [GazeFeatureVector],
-        display2: [GazeFeatureVector]
-    ) -> (display1: [GazeFeatureVector], display2: [GazeFeatureVector]) {
-        let (r1, r2) = CalibrationQuality.refineSamples(display1: display1, display2: display2)
-        return (r1, r2)
     }
 
     public func mappedDisplay(feature: GazeFeatureVector) -> DisplayNumber {

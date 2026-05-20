@@ -40,29 +40,17 @@ public final class GazeSampleBuffer: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// Frames in `(labelTime - maxAge, labelTime]` for quality filtering and averaging.
-    public func windowSnapshot(
-        at labelTime: TimeInterval,
-        maxAge: TimeInterval = defaultMaxLabelAge,
-        minFrames: Int = ImplicitGazeSampleFilter.minWindowFrames
-    ) -> GazeWindowSnapshot? {
-        lock.lock()
-        let window = samples.filter { $0.timestamp <= labelTime && labelTime - $0.timestamp <= maxAge }
-        lock.unlock()
-        guard window.count >= minFrames else { return nil }
-        let features = window.map(\.feature)
-        let newestAge = labelTime - (window.map(\.timestamp).max() ?? labelTime)
-        let oldestAge = labelTime - (window.map(\.timestamp).min() ?? labelTime)
-        return GazeWindowSnapshot(features: features, newestAge: newestAge, oldestAge: oldestAge)
-    }
-
     /// Mean feature over frames in `(labelTime - maxAge, labelTime]`.
     public func representativeFeature(
         at labelTime: TimeInterval,
         maxAge: TimeInterval = defaultMaxLabelAge,
         minFrames: Int = defaultMinFrames
     ) -> GazeFeatureVector? {
-        windowSnapshot(at: labelTime, maxAge: maxAge, minFrames: minFrames)?.mean
+        lock.lock()
+        let window = samples.filter { $0.timestamp <= labelTime && labelTime - $0.timestamp <= maxAge }
+        lock.unlock()
+        guard window.count >= minFrames else { return nil }
+        return GazeFeatureVector.mean(window.map(\.feature))
     }
 
     public var frameCount: Int {

@@ -38,7 +38,7 @@ struct EyeWindowApp: App {
             if focusObserver == nil {
                 let observer = FocusObserver(history: coordinator.focusHistory)
                 observer.onFocusRecorded = { display, appName in
-                    coordinator.setActiveFocus(display: display, appName: appName)
+                    coordinator.setFocus(display: display, appName: appName)
                     coordinator.recordImplicitAppFocus(display: display)
                 }
                 observer.start()
@@ -192,7 +192,7 @@ struct EyeWindowApp: App {
             EyeWindowLog.info("focus D\(display.rawValue) blocked (accessibility)")
         case .activated(let appName):
             coordinator.setAccessibilityBlocked(false)
-            coordinator.setCurrentFocusDisplay(display, appName: appName)
+            coordinator.setFocus(display: display, appName: appName)
             let appPart = appName.map { " → \($0)" } ?? ""
             EyeWindowLog.info("focus OK \(source) D\(display.rawValue)\(appPart)")
         case .notDual:
@@ -255,16 +255,9 @@ struct EyeWindowApp: App {
 
             if !coordinator.isCameraBlocked, !coordinator.isGazePaused {
                 let s = coordinator.implicitDatasetStats
-                let filtered = coordinator.implicitRejectedCount
-                Group {
-                    if filtered > 0 {
-                        Text("Learning: \(s.total) samples (D1 \(s.display1) · D2 \(s.display2)) · \(filtered) filtered")
-                    } else {
-                        Text("Learning: \(s.total) samples (D1 \(s.display1) · D2 \(s.display2))")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(s.total > 0 ? .primary : .secondary)
+                Text("Learning: \(s.total) samples (D1 \(s.display1) · D2 \(s.display2))")
+                    .font(.caption)
+                    .foregroundStyle(s.total > 0 ? .primary : .secondary)
             }
 
             if !coordinator.recentLogLines.isEmpty {

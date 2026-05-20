@@ -129,7 +129,7 @@ enum InteractiveCalibrate {
 
         guard !failed else { return 1 }
 
-        let refined = CalibrationProfile.refinedCalibrationSamples(
+        let refined = CalibrationQuality.refineSamples(
             display1: d1Samples,
             display2: d2Samples
         )
