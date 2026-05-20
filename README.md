@@ -102,26 +102,10 @@ Instead of upfront calibration, the app now **collects labeled gaze rows while y
 
 On each label event:
 
-1. Take the **mean gaze vector** from the last ~1 s of frames in a ring buffer (min **4** frames).  
-2. Run **quality filters** (see below) — rejected labels are logged but not saved.  
-3. Append one JSON line: `[gx, gy, gz, yaw, pitch, display, source, timestamp, …]`.  
-4. Debounce (~0.35 s) to avoid duplicate rows.
+1. Take the **mean gaze vector** from the last ~1 s of frames in a ring buffer (min 3 frames).  
+2. Append one JSON line: `[gx, gy, gz, yaw, pitch, display, source, timestamp, …]`.
 
-### Training data filters
-
-Bad rows are dropped before append (`ImplicitGazeSampleFilter`):
-
-| Filter | Rejects when |
-|--------|----------------|
-| **insufficientFrames** | Fewer than 4 gaze frames in the 1 s window |
-| **staleWindow** | Newest frame is older than 0.45 s (click/focus without fresh gaze) |
-| **unstableGaze** | Window std too high (head moving during click; max spread 0.10, yaw 0.07) |
-| **invalidFeature** | Zero gaze, or unit vector `(gx,gy,gz)` length outside 0.85–1.15 |
-| **outOfRangeAngles** | \|yaw\| > 1.35 rad or \|pitch\| > 1.0 rad |
-| **nearDuplicate** | Same display as last saved row and feature within 0.05 (5D distance) |
-| **debounced** | Second label within 0.35 s |
-
-Terminal: `implicit: filter unstableGaze (mouseClick)`. Menu bar: `Learning: N samples · M filtered`.
+No quality filters yet — collect first, clean and train offline later.
 
 **Dataset path:**
 

@@ -339,71 +339,30 @@ func testImplicitGazeDatasetStoreRoundTrip() {
     try? FileManager.default.removeItem(at: dir)
 }
 
-func testImplicitGazeCollectorDebounces() {
+func testImplicitGazeRecordFromBuffer() {
     let buffer = GazeSampleBuffer()
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let store = ImplicitGazeDatasetStore(fileURL: dir.appendingPathComponent("implicit.jsonl"))
-    let collector = ImplicitGazeCollector(buffer: buffer, store: store)
     let f = GazeFeatureVector.fromGaze(yawRadians: 0.3, pitchRadians: 0)
-    for i in 0 ..< 6 {
+    for i in 0 ..< 5 {
         buffer.append(f, at: 10.0 + Double(i) * 0.05)
     }
-    if case .saved = collector.record(display: .one, source: .mouseClick, at: 10.3) {
-    } else {
-        preconditionFailure("first record should save")
+    guard let feature = buffer.representativeFeature(at: 10.3) else {
+        preconditionFailure("buffer window → feature")
     }
-    if case .rejected(.debounced) = collector.record(display: .two, source: .mouseClick, at: 10.35) {
-    } else {
-        preconditionFailure("rapid second label should debounce")
+    precondition(
+        store.append(ImplicitGazeSample(timestamp: 10.3, display: .one, feature: feature, source: .mouseClick)),
+        "saves row"
+    )
+    guard let feature2 = buffer.representativeFeature(at: 10.35) else {
+        preconditionFailure("second window → feature")
     }
-    for i in 0 ..< 4 {
-        buffer.append(f, at: 10.75 + Double(i) * 0.02)
-    }
-    if case .saved = collector.record(display: .two, source: .mouseClick, at: 10.8) {
-    } else {
-        preconditionFailure("after debounce interval should save")
-    }
+    precondition(
+        store.append(ImplicitGazeSample(timestamp: 10.35, display: .two, feature: feature2, source: .appFocus)),
+        "saves second row"
+    )
+    precondition(store.stats().total == 2, "two rows in dataset")
     try? FileManager.default.removeItem(at: dir)
-}
-
-func testImplicitGazeSampleFilterRejectsUnstableWindow() {
-    let stable = GazeFeatureVector.fromGaze(yawRadians: 0.3, pitchRadians: 0)
-    let jump = GazeFeatureVector.fromGaze(yawRadians: 0.9, pitchRadians: 0)
-    let window = GazeWindowSnapshot(
-        features: [stable, stable, stable, jump],
-        newestAge: 0.05,
-        oldestAge: 0.3
-    )
-    let reason = ImplicitGazeSampleFilter.evaluate(window: window, display: .one, lastSaved: nil)
-    precondition(reason == .unstableGaze, "large yaw jump in window → unstable")
-}
-
-func testImplicitGazeSampleFilterRejectsNearDuplicate() {
-    let f = GazeFeatureVector.fromGaze(yawRadians: 0.3, pitchRadians: 0)
-    let window = GazeWindowSnapshot(
-        features: [f, f, f, f],
-        newestAge: 0.05,
-        oldestAge: 0.2
-    )
-    let last = ImplicitGazeSample(
-        timestamp: 1,
-        display: .one,
-        feature: f,
-        source: .mouseClick
-    )
-    let reason = ImplicitGazeSampleFilter.evaluate(window: window, display: .one, lastSaved: last)
-    precondition(reason == .nearDuplicate, "same display + identical feature → duplicate")
-}
-
-func testImplicitGazeSampleFilterRejectsStaleWindow() {
-    let f = GazeFeatureVector.fromGaze(yawRadians: 0.3, pitchRadians: 0)
-    let window = GazeWindowSnapshot(
-        features: [f, f, f, f],
-        newestAge: 0.6,
-        oldestAge: 0.9
-    )
-    let reason = ImplicitGazeSampleFilter.evaluate(window: window, display: .one, lastSaved: nil)
-    precondition(reason == .staleWindow, "newest frame too old → stale")
 }
 
 // MARK: - Calibration (vector prototypes)
@@ -414,26 +373,20 @@ func testGazeFeatureVectorFromGaze() {
     precondition(abs(v.yawRadians) < 0.001, "yaw stored")
 }
 
-func testCalibratedGazeClassifierNearest() {
+func testGazeCalibrationRulesNearestDisplay() {
     let profile = CalibrationProfile(
         display1: GazeFeatureVector.fromGaze(yawRadians: -0.5, pitchRadians: 0),
         display2: GazeFeatureVector.fromGaze(yawRadians: 0.5, pitchRadians: 0)
     )
-    let layout = DualLayout(display1IsLeft: true)
     let left = GazeFeatureVector.fromGaze(yawRadians: -0.48, pitchRadians: 0)
     let right = GazeFeatureVector.fromGaze(yawRadians: 0.48, pitchRadians: 0)
     precondition(
-        CalibratedGazeClassifier.nearestDisplay(feature: left, layout: layout, profile: profile) == .one,
+        GazeCalibrationRules.mapDisplay(feature: left, profile: profile) == .one,
         "near D1 prototype"
     )
     precondition(
-        CalibratedGazeClassifier.nearestDisplay(feature: right, layout: layout, profile: profile) == .two,
+        GazeCalibrationRules.mapDisplay(feature: right, profile: profile) == .two,
         "near D2 prototype"
-    )
-    let layoutFlipped = DualLayout(display1IsLeft: false)
-    precondition(
-        CalibratedGazeClassifier.nearestDisplay(feature: left, layout: layoutFlipped, profile: profile) == .one,
-        "D1 prototype still maps to display 1 when D1 is on the right"
     )
 }
 
@@ -577,22 +530,6 @@ func testCalibrationProfileSmokeYawGap() {
     precondition(profile.mappedDisplay(feature: d2) == .two, "right monitor gaze → D2")
 }
 
-func testCalibratedGazeClassifierTemporalMode() {
-    var classifier = CalibratedGazeClassifier()
-    let profile = CalibrationProfile(
-        display1: GazeFeatureVector.fromGaze(yawRadians: -0.5, pitchRadians: 0),
-        display2: GazeFeatureVector.fromGaze(yawRadians: 0.5, pitchRadians: 0)
-    )
-    let layout = DualLayout(display1IsLeft: true)
-    let leftPose = HeadPose(yawRadians: -0.48, pitchRadians: 0, onDisplayAttention: true)
-    let feature = GazeFeatureVector.fromPose(leftPose)
-    for _ in 0 ..< CalibratedGazeClassifier.predictionWindow {
-        _ = classifier.classify(feature: feature, layout: layout, profile: profile)
-    }
-    let final = classifier.classify(feature: feature, layout: layout, profile: profile)
-    precondition(final == .one, "mode of repeated left predictions → D1")
-}
-
 func testCalibrationQualityRefinementImprovesGxGap() {
     var d1: [GazeFeatureVector] = []
     var d2: [GazeFeatureVector] = []
@@ -609,7 +546,7 @@ func testCalibrationQualityRefinementImprovesGxGap() {
     let rawGx = abs(raw.display1.gx - raw.display2.gx)
     let refinedGx = abs(refined.display1.gx - refined.display2.gx)
     precondition(refinedGx >= rawGx * 0.9, "refined gx gap \(refinedGx) vs raw \(rawGx)")
-    let r = CalibrationProfile.refinedCalibrationSamples(display1: d1, display2: d2)
+    let r = CalibrationQuality.refineSamples(display1: d1, display2: d2)
     let report = CalibrationQuality.evaluate(
         profile: refined,
         display1Samples: r.display1,
@@ -695,16 +632,15 @@ func testCalibrationStoreRoundTrip() {
     try? FileManager.default.removeItem(at: dir)
 }
 
-func testCalibratedGazeMapperPoseLabel() {
+func testGazeCalibrationRulesPoseLabel() {
     let profile = CalibrationProfile(
         display1: GazeFeatureVector.fromGaze(yawRadians: -0.5, pitchRadians: 0),
         display2: GazeFeatureVector.fromGaze(yawRadians: 0.5, pitchRadians: 0)
     )
-    let layout = DualLayout(display1IsLeft: true)
     let left = HeadPose(yawRadians: -0.48, pitchRadians: 0, onDisplayAttention: true)
     let center = HeadPose(yawRadians: 0.0, pitchRadians: 0, onDisplayAttention: true)
-    precondition(CalibratedGazeMapper.poseLabel(pose: left, profile: profile, layout: layout) == "D1", "near D1")
-    precondition(CalibratedGazeMapper.poseLabel(pose: center, profile: profile, layout: layout) == "D1", "always nearest mean (tie → D1)")
+    precondition(GazeCalibrationRules.poseLabel(pose: left, profile: profile) == "D1", "near D1")
+    precondition(GazeCalibrationRules.poseLabel(pose: center, profile: profile) == "D1", "tie → D1")
 }
 
 func testSessionCoordinatorPoseLabelUncalibratedFallback() {
@@ -766,10 +702,7 @@ testGazeFeatureVectorFromPoseUsesGazeYaw()
 
 testGazeSampleBufferRepresentativeFeature()
 testImplicitGazeDatasetStoreRoundTrip()
-testImplicitGazeCollectorDebounces()
-testImplicitGazeSampleFilterRejectsUnstableWindow()
-testImplicitGazeSampleFilterRejectsNearDuplicate()
-testImplicitGazeSampleFilterRejectsStaleWindow()
+testImplicitGazeRecordFromBuffer()
 
 testDwellNotMetReturnsNil()
 testDwellMetEmitsIntent()
@@ -780,21 +713,20 @@ testYawMapsToCorrectDisplay()
 testGazeStateMachineCalibratedMapping()
 
 testGazeFeatureVectorFromGaze()
-testCalibratedGazeClassifierNearest()
+testGazeCalibrationRulesNearestDisplay()
 testCalibrationProfile5DMapping()
 testGazeFeatureSpreadFromSamples()
 testMahalanobisWeightsNoisyAxisLess()
 testSwitchHysteresisKeepsLockedDisplay()
 testNearestMeanTieBreaksToDisplay1()
 testCalibrationProfileSmokeYawGap()
-testCalibratedGazeClassifierTemporalMode()
 testCalibrationQualityRefinementImprovesGxGap()
 testCalibrationQualityRejectsLowReplay()
 testCalibrationQualityRejectsSmallYawGap()
 testCalibrationYawOnlyReplaySeparatesDisplays()
 testCalibrationFlowMultiTarget()
 testCalibrationStoreRoundTrip()
-testCalibratedGazeMapperPoseLabel()
+testGazeCalibrationRulesPoseLabel()
 testSessionCoordinatorPoseLabelUncalibratedFallback()
 
 testTwoDisplaysDisplay1Left()

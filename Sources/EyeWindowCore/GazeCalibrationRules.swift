@@ -3,21 +3,6 @@ import Foundation
 /// Nearest mean-vector display mapping: compare **current** gaze to each screen's calibrated mean
 /// `[gx, gy, gz, yaw, pitch]` using Mahalanobis distance (per-dimension std from calibration).
 public enum GazeCalibrationRules {
-    /// Fallback when no per-calibration tuning is available (legacy / tests).
-    public static let defaultSwitchAdvantageRatio = 0.10
-
-    public static func mapDisplay(
-        pose: HeadPose,
-        profile: CalibrationProfile,
-        lockedDisplay: DisplayNumber? = nil
-    ) -> DisplayNumber {
-        mapDisplay(
-            feature: GazeFeatureVector.fromPose(pose),
-            profile: profile,
-            lockedDisplay: lockedDisplay
-        )
-    }
-
     public struct DistanceResult: Equatable, Sendable {
         public var nearest: DisplayNumber
         public var mapped: DisplayNumber
@@ -83,5 +68,11 @@ public enum GazeCalibrationRules {
         let d1 = abs(yawRadians - profile.display1.yawRadians)
         let d2 = abs(yawRadians - profile.display2.yawRadians)
         return d1 <= d2 ? .one : .two
+    }
+
+    /// Menu bar debug label: `D1` or `D2` from raw pose (no temporal smoothing).
+    public static func poseLabel(pose: HeadPose, profile: CalibrationProfile) -> String {
+        let display = mapDisplay(feature: GazeFeatureVector.fromPose(pose), profile: profile)
+        return display == .one ? "D1" : "D2"
     }
 }

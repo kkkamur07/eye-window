@@ -29,8 +29,6 @@ public final class SessionCoordinator: ObservableObject {
     @Published public private(set) var calibrationNeedsAttention = false
     /// Implicit learning rows saved to `implicit_gaze_dataset.jsonl`.
     @Published public private(set) var implicitDatasetStats = ImplicitGazeDatasetStore.Stats(total: 0, display1: 0, display2: 0)
-    /// Labels dropped by quality filters this session (not written to JSONL).
-    @Published public private(set) var implicitRejectedCount = 0
 
     public let focusHistory = FocusHistory()
     public let calibrationStore: CalibrationStore
@@ -47,7 +45,6 @@ public final class SessionCoordinator: ObservableObject {
     private var lastGazeIdleLogTime: TimeInterval = 0
     private let gazeSampleBuffer = GazeSampleBuffer()
     private let implicitGazeStore = ImplicitGazeDatasetStore.shared
-    private lazy var implicitGazeCollector = ImplicitGazeCollector(buffer: gazeSampleBuffer, store: implicitGazeStore)
 
     public init(calibrationStore: CalibrationStore = .shared) {
         self.calibrationStore = calibrationStore
@@ -80,15 +77,15 @@ public final class SessionCoordinator: ObservableObject {
         EyeWindowLog.info(isGazePaused ? "gaze paused" : "gaze resumed")
         if isGazePaused {
             stopGazePipeline()
-        latestPoseLabel = nil
-        latestYawRadians = nil
-        latestPitchRadians = nil
-        latestGx = nil
-        latestGy = nil
-        latestGz = nil
-        hasLiveGazeFrames = false
-        gazeStatus = nil
-        calibrationDotDisplay = nil
+            latestPoseLabel = nil
+            latestYawRadians = nil
+            latestPitchRadians = nil
+            latestGx = nil
+            latestGy = nil
+            latestGz = nil
+            hasLiveGazeFrames = false
+            gazeStatus = nil
+            calibrationDotDisplay = nil
             calibrationDotPresenter?.hideCalibrationDot()
         } else if isSessionActive, !isCameraBlocked {
             startGazePipeline()
@@ -124,8 +121,6 @@ public final class SessionCoordinator: ObservableObject {
         isCalibrated = calibrationStore.isCalibrated
         focusHistory.reset()
         gazeSampleBuffer.reset()
-        implicitGazeCollector.resetSessionCounters()
-        implicitRejectedCount = 0
         refreshImplicitStats()
     }
 
@@ -160,22 +155,26 @@ public final class SessionCoordinator: ObservableObject {
         source: ImplicitLabelSource,
         mousePoint: CGPoint?
     ) {
-        let outcome = implicitGazeCollector.record(
+        let timestamp = Date.timeIntervalSinceReferenceDate
+        guard let feature = gazeSampleBuffer.representativeFeature(at: timestamp) else {
+            if gazeSampleBuffer.frameCount < GazeSampleBuffer.defaultMinFrames {
+                EyeWindowLog.info("implicit: skip \(source.rawValue) — waiting for gaze frames")
+            }
+            return
+        }
+        let sample = ImplicitGazeSample(
+            timestamp: timestamp,
             display: display,
+            feature: feature,
             source: source,
             mousePoint: mousePoint
         )
-        implicitRejectedCount = implicitGazeCollector.rejectedThisSession
-        switch outcome {
-        case .saved(let sample):
-            refreshImplicitStats()
-            let src = source == .mouseClick ? "click" : "focus"
-            EyeWindowLog.info(
-                "implicit +1 D\(sample.display.rawValue) (\(src)) vec=(\(String(format: "%.2f", sample.gx)),\(String(format: "%.2f", sample.gy)),\(String(format: "%.2f", sample.gz))) yaw=\(String(format: "%.3f", sample.yawRadians)) total=\(implicitDatasetStats.total)"
-            )
-        case .rejected(let reason):
-            EyeWindowLog.info("implicit: filter \(reason.rawValue) (\(source.rawValue))")
-        }
+        guard implicitGazeStore.append(sample) else { return }
+        refreshImplicitStats()
+        let src = source == .mouseClick ? "click" : "focus"
+        EyeWindowLog.info(
+            "implicit +1 D\(sample.display.rawValue) (\(src)) vec=(\(String(format: "%.2f", sample.gx)),\(String(format: "%.2f", sample.gy)),\(String(format: "%.2f", sample.gz))) yaw=\(String(format: "%.3f", sample.yawRadians)) total=\(implicitDatasetStats.total)"
+        )
     }
 
     private func refreshImplicitStats() {
@@ -193,14 +192,7 @@ public final class SessionCoordinator: ObservableObject {
         EyeWindowLog.info("recalibrate started")
     }
 
-    public func setCurrentFocusDisplay(_ display: DisplayNumber, appName: String? = nil) {
-        currentFocusDisplay = display
-        if let appName {
-            activeAppName = appName
-        }
-    }
-
-    public func setActiveFocus(display: DisplayNumber, appName: String?) {
+    public func setFocus(display: DisplayNumber, appName: String?) {
         currentFocusDisplay = display
         activeAppName = appName
     }
@@ -287,7 +279,7 @@ public final class SessionCoordinator: ObservableObject {
     }
 
     private func finishCalibration(_ profile: CalibrationProfile) {
-        let refined = CalibrationProfile.refinedCalibrationSamples(
+        let refined = CalibrationQuality.refineSamples(
             display1: calibrationFlow.lastDisplay1Samples,
             display2: calibrationFlow.lastDisplay2Samples
         )
@@ -473,12 +465,8 @@ public final class SessionCoordinator: ObservableObject {
             return
         }
 
-        if case .dual(let dualLayout) = displayLayout, let profile = calibrationStore.profile {
-            latestPoseLabel = CalibratedGazeMapper.poseLabel(
-                pose: pose,
-                profile: profile,
-                layout: dualLayout
-            )
+        if case .dual = displayLayout, let profile = calibrationStore.profile {
+            latestPoseLabel = GazeCalibrationRules.poseLabel(pose: pose, profile: profile)
         } else {
             latestPoseLabel = Self.poseLabelUncalibrated(for: pose)
         }

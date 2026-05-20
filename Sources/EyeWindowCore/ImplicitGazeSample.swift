@@ -43,14 +43,4 @@ public struct ImplicitGazeSample: Equatable, Sendable, Codable {
             mouseY = nil
         }
     }
-
-    public var feature: GazeFeatureVector {
-        GazeFeatureVector(
-            gx: gx,
-            gy: gy,
-            gz: gz,
-            yawRadians: yawRadians,
-            pitchRadians: pitchRadians
-        )
-    }
 }
