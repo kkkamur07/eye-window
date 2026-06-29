@@ -1,191 +1,207 @@
-# Eye Window — Product Requirements Document (Gaze Model MVP)
+# Eye Window — Product Requirements Document
 
 ## Problem Statement
 
-When working across two monitors—for example, a video course on one display and Obsidian on another—switching keyboard focus requires repeated Command+Tab every time you look at the other screen to take notes. That breaks flow during lectures and study sessions.
+Working across two monitors means constantly hunting through Command+Tab to move keyboard focus between displays — for example, a video course on one screen and notes on another. On a single display, the same friction appears when juggling two or three apps (Obsidian, Safari, Terminal): one **Last-focused app** per **Display** is not enough.
 
-An initial MVP shipped with Vision-based head-pose heuristics (face position and optional face yaw). In real use, focus switches too often and feel wrong: the menu bar shows activity, but **display-level focus does not reliably follow where the user is looking**. The user needs **learned gaze estimation** (yaw/pitch from a small on-device model) plus **lightweight calibration** for their desk setup, while keeping everything local, private, and menu-bar simple.
+Separately, hours of continuous screen use without structured breaks is hard on the eyes. Wall-clock timers do not reflect actual computer use. The user needs **Blink reminders** tied to **Active usage time**, with at-a-glance **Menu bar progress** so they know how much active time has accumulated and how long until the next **Blink time** — without opening a detailed settings panel.
 
 ## Solution
 
-Eye Window remains a native macOS menu bar utility. During a manually started **Session** with exactly two **Displays**, it uses the user’s **Webcam** and a **Gaze estimation model** (MobileNetV2 / MobileGaze, ONNX source converted to Core ML) to produce a **Gaze stream** (yaw, pitch, **On-display attention**). Apple Vision supplies face rectangles only—to crop the face for the model, not to estimate gaze angles.
+Eye Window is a native macOS menu bar utility with two capabilities:
 
-On first **Session** without saved **Calibration heuristics**, the app runs a two-step flow: look at display 1, then display 2; recorded yaw samples derive left/right thresholds for **Gaze mapping**. Later **Sessions** reuse persisted thresholds; **Recalibrate** is available from the menu when the desk setup changes.
+1. **Display focus** — With exactly two **Displays**, **Display switch chord** **⌘⌥1** / **⌘⌥2** moves keyboard **Focus target** to the top of that **Display**'s **Focus stack**. Repeated chord while already on that **Display** **Rotate**s to the next app in the stack. Manual focus changes build the stack; quit apps are pruned eagerly. Hotkey-only — no stack list in the menu.
 
-Existing behavior is retained where it still applies: **Medium dwell** (~0.9 s) with stable frames, **Focus lock**, **Last-focused app** per display, **Focus fallback**, **Gaze pause** (Control+Option+grave), **Focus indicator** and debug logs in the menu bar (display number + active app name), and **Dual-display mode** gating. **Camera mirroring** is fixed per webcam type for the whole **Session** (built-in mirrored, external desk cam unmirrored)—never toggling mid-session.
+2. **Blink reminders** — Tracks **Active usage time** from input; shows **Blink time overlay** after the **Eye break interval**; **Menu bar progress** in the icon (`D1 · 12/60`) and full **Blink status** with elapsed and remaining times in the menu dropdown.
 
-**MVP success** is unchanged: one real 30+ minute course-and-notes **Session** with gaze-driven switching, **Gaze pause** only occasionally, and rarely correcting focus with Command+Tab.
+No webcam, cloud, or ML. Local-only, menu-bar simple.
 
 ## User Stories
 
-### Study workflow (unchanged goals)
+### Display focus — baseline (implemented)
 
-1. As a student watching a course on one display, I want keyboard focus to move to my notes display when I look at it long enough, so that I can type without Command+Tab.
+1. As a dual-monitor user, I want to press **⌘⌥1** or **⌘⌥2** to focus the top app on that **Display**'s **Focus stack**, so that I avoid Command+Tab when switching between course and notes.
 
-2. As a student, I want focus to return to the last app I used on each display, so that Obsidian stays targetable even if another window briefly covered it.
+2. As a dual-monitor user, I want manual clicks and Command+Tab to update **Focus stack** membership per **Display**, so that hotkeys reflect what I actually use.
 
-3. As a student, I want a brief glance at the video display while typing notes not to steal focus, so that focus lock holds until I deliberately dwell on the other display.
+3. As a dual-monitor user, I want **Display** numbers to match macOS left-to-right numbering, so that 1 and 2 match System Settings.
 
-4. As a student, I want focus switching to require a medium dwell before activating, so that accidental movements do not change focus constantly.
+4. As a dual-monitor user with zero, one, or three+ **Displays**, I want switching disabled and a clear menu warning, so that I am not surprised.
 
-5. As a student with exactly two monitors, I want gaze mapped to left vs right display, so that dual-monitor study is supported.
+5. As a dual-monitor user, I want **Accessibility permission** prompted when needed, so that apps can be activated.
 
-6. As a student, I want the app to avoid switching when I am not attending my monitors (phone, desk, wall), so that focus does not change when I am away.
+6. As a dual-monitor user, I want the menu bar icon to show which **Display** has focus and the active app name, so that I can trust hotkey switches.
 
-7. As a student, I want to launch the app when I start studying and quit when done, so that the camera is not always on.
+7. As a dual-monitor user, I want hotkeys and focus tracking active as soon as the app launches, so that I do not need to open the menu first.
 
-8. As a student, I want to control the app from the menu bar like Rectangle, so that it stays out of the way.
+8. As a dual-monitor user, I want **Display switch chord** to use Command+Option+number (not Command alone), so that browser tab shortcuts like Arc **⌘1** do not conflict.
 
-9. As a student, I want the menu bar to show which display number (1 or 2) has focus and which app is active, so that I can trust or debug switches.
+9. As a dual-monitor user, I want **Focus stack** remembered only for the current run, not across reboots, so that stale apps are not resurrected.
 
-10. As a student, I want display numbers to match macOS left-to-right layout, so that 1 and 2 match System Settings.
+10. As a dual-monitor user, I want a sensible fallback when no app is on a **Display**'s **Focus stack** yet, so that the first hotkey press still focuses something usable on that screen.
 
-11. As a student, I want to pause gaze-driven switching with Control+Option+grave, so that I can recover when detection is wrong.
+### Display focus — Focus stack and Rotate (to build)
 
-12. As a student, I want manual clicks and Command+Tab to update last-focused per display, so that gaze returns to the app I actually use.
+11. As a dual-monitor user with two or three apps on one **Display**, I want repeated **⌘⌥N** while already on that **Display** to **Rotate** through every app on its **Focus stack**, so that I cycle apps without Cmd+Tab.
 
-13. As a student, I want the first dwell on a display to focus a sensible app if none is known yet this session, so that I am not stuck.
+12. As a dual-monitor user, I want the first **⌘⌥N** after being on the other **Display** to land on the top of the **Focus stack** (not rotate), so that switching displays and cycling apps are distinct gestures.
 
-14. As a student, I want all camera and gaze processing on my Mac only, so that nothing is sent to the cloud.
+13. As a dual-monitor user, I want **Rotate** to wrap from the bottom of the **Focus stack** back to the top, so that cycling is continuous.
 
-15. As a student with zero, one, or three+ displays, I want switching disabled and a clear menu state, so that I am not surprised.
+14. As a dual-monitor user, I want re-focusing an app to move it to the top of the **Focus stack**, so that my most recent app is what I get on a cross-display switch.
 
-16. As a student, I want to grant Camera and Accessibility when prompted, so that gaze and focus activation work.
+15. As a dual-monitor user, I want quit apps removed from the **Focus stack** immediately, so that **Rotate** never targets dead apps.
 
-17. As a student, I want gaze pause to stop automatic switching while still using macOS normally, so that I can finish a task without quitting.
+16. As a dual-monitor user, I want **Rotate** to be a no-op when only one app is on the **Focus stack**, so that repeated chords do not cause surprise jumps.
 
-18. As a student, I want to resume gaze after pause without restarting the session, so that I can return to hands-free focus.
+17. As a dual-monitor user, I want display focus driven entirely by hotkeys with no **Focus stack** list in the menu, so that the menu stays minimal and I build muscle memory.
 
-### Gaze model and calibration (new / updated)
+18. As a dual-monitor user, I want **Rotate** to log which app was activated, so that I can debug order in the menu log lines.
 
-19. As a student, I want gaze direction from a trained model (not face-position heuristics), so that left/right display detection matches where I look.
+19. As a maintainer, I want **Focus stack** logic testable in **DisplayFocusSelfCheck** without Accessibility, so that stack order, dedupe, prune, and rotate index are verified automatically.
 
-20. As a student setting up for the first time, I want a short “look at display 1, then display 2” calibration in the menu, so that thresholds fit my webcam and desk without retraining the model.
+### Blink reminders — baseline (implemented)
 
-21. As a student, I want calibration saved across sessions, so that I do not repeat setup every lecture.
+20. As a screen-heavy user, I want **Active usage time** to accumulate only while I am typing, clicking, or scrolling, so that reminders reflect real desk time.
 
-22. As a student who moved monitors or webcam, I want **Recalibrate** in the menu, so that mapping stays accurate without reinstalling.
+21. As a screen-heavy user, I want **Active usage time** to stop accumulating after **Idle threshold** (five minutes without input), so that a coffee break does not count toward the next **Eye break**.
 
-23. As a student, I want on-display attention inferred from model pitch (not face size), so that looking away is detected more reliably.
+22. As a screen-heavy user, I want **Active usage time** to resume when I return and use the computer again, so that tracking continues naturally after **Idle period**.
 
-24. As a student, I want built-in webcam frames mirrored consistently and external desk cams unmirrored, with no flip mid-session, so that calibration and gaze mapping stay stable.
+23. As a screen-heavy user, I want the next **Blink time** after sixty minutes of **Active usage time** by default, so that reminders match sustained use rather than clock time.
 
-25. As a student, I want the default system webcam (built-in or USB desk cam), so that I do not need special hardware.
+24. As a screen-heavy user, I want **Blink reminders** on by default at launch, with a menu toggle to pause, so that eye health is automatic but controllable.
 
-26. As a student debugging bad switches, I want recent gaze/focus log lines in the menu and Console.app logs, so that I can see dwell, mapped display, and activation events.
+25. As a screen-heavy user, I want a **Blink time overlay** on every **Display** with **Skip** confirmation, so that breaks are unavoidable but not dismissible by accident.
 
-27. As a student, I want stable frames before dwell starts, so that brief pose noise does not trigger a switch.
+26. As a screen-heavy user, I want to pick a shorter **Eye break interval** from the menu for testing, so that I can verify overlays without waiting an hour.
 
-28. As a developer, I want optional sparse debug frame capture for tuning, so that I can improve mapping without affecting live latency.
+27. As a screen-heavy user, I want my **Eye break interval** choice saved between launches, so that test presets persist during development.
 
-### Scope and success (unchanged constraints)
+28. As a screen-heavy user, I want **Active usage time** not to accumulate during a **Blink time overlay**, so that overlay time does not double-count.
 
-29. As a student, I want display-level focus only (not window-level gaze), so that the MVP stays shippable.
+29. As a screen-heavy user, I want **Blink reminders** to work on any display count, so that eye health applies on laptop-only setups too.
 
-30. As a student, I want no dedicated eye-tracking hardware, cloud, Flutter UI, or login-item auto-start for this MVP.
+### Blink reminders — Menu bar progress (to build)
 
-31. As a student, I want last-focused apps remembered only for the current session, not across reboots.
+30. As a screen-heavy user, I want the menu dropdown to show **Blink status**, elapsed **Active usage time**, and time until the next **Blink time** together, so that I see full progress at a glance.
 
-32. As a student, I want low battery impact via low frame-rate inference in memory, so that a full lecture on laptop power is feasible.
+31. As a screen-heavy user, I want the menu bar icon to show **Menu bar progress** as a fraction (e.g. `D1 · 12/60`) next to display focus, so that I see blink progress without opening the menu.
 
-33. As a student, I want to complete one 30+ minute real study session as the definition of done, so that success is workflow-based.
+32. As a screen-heavy user, I want **Menu bar progress** to use the current **Eye break interval** including test presets, so that `12/30` is correct when I pick thirty seconds for testing.
 
-34. As a student, I want to use gaze pause at most occasionally during that session, so that the product is usable with a safety net.
+33. As a screen-heavy user, I want the progress fraction frozen when **Blink reminders** are paused or in an **Idle period**, so that I can see accumulated progress stalled without it ticking down falsely.
 
-35. As a student, I want to rarely need Command+Tab to correct focus during that session, so that the value proposition holds.
+34. As a screen-heavy user, I want sub-minute remaining times shown as seconds in the dropdown when using short test intervals, so that countdown is readable near a break.
 
-36. As a maintainer, I want domain terms in CONTEXT.md aligned with this PRD, so that future work shares one vocabulary.
+35. As a screen-heavy user, I want paused **Blink status** clearly labeled in the dropdown, so that I know reminders are off without guessing from a frozen fraction.
 
-37. As a maintainer, I want post-MVP items (third display, hardware eye tracker, full calibration wizard, window-level gaze) deferred until **MVP success**, so that scope does not creep.
+### Cross-cutting
+
+36. As a user, I want all processing local on my Mac with no network calls, so that privacy is preserved.
+
+37. As a user, I want the app to stay a lightweight menu bar utility, so that it stays out of the way.
+
+38. As a maintainer, I want domain terms in CONTEXT.md aligned with this PRD, so that future work shares one vocabulary.
+
+39. As a maintainer, I want post-MVP items (window-level focus, third-display switching, cross-session persistence, slot-based hotkeys) deferred, so that scope does not creep.
 
 ## Implementation Decisions
 
 ### Guiding principle
 
-**MVP simplicity** from CONTEXT.md: smallest behavior set that proves the study workflow. The pivot replaces the **Gaze stream** signal only; **Dwell**, **Focus lock**, **Focus history**, **Focus activation**, **Menu bar control**, **Gaze pause**, and **Dual-display mode** stay as implemented unless a gaze issue explicitly updates them.
+Prefer pure logic in **DisplayFocusCore** and thin AppKit wiring in **DisplayFocus**. Hotkey-driven UX; menu shows status and blink progress, not **Focus stack** lists.
 
-### Already implemented (baseline — do not rebuild)
+### Already implemented
 
 | Area | Status |
 |------|--------|
-| Swift package, menu bar agent, session start/stop | Done |
-| Dual-display detection and display numbering | Done |
-| GazeStateMachine (dwell ~0.9 s, 4 stable frames, focus lock, fixed yaw threshold) | Done — **must accept calibrated thresholds** |
-| FocusHistory, FocusController, FocusObserver, Accessibility activation | Done |
-| Gaze pause hotkey, menu bar status (D1/D2, app name, gaze status, log lines) | Done |
-| EyeWindowLog | Done |
-| HeadPoseEngine (webcam + Vision face rects + heuristic mapper) | Done — **to be replaced by gaze model pipeline** |
+| **Dual-display mode**, **Display switch chord**, single **Last-focused app** per display | Done |
+| **FocusHistory**, **FocusController**, **FocusObserver**, Accessibility activation | Done |
+| **Blink reminders** full pipeline: **ActiveUsageTracker**, input monitor, tick loop, overlay, skip, pause | Done (issues 016–020) |
+| Menu **Break interval** presets with UserDefaults persistence | Done |
+| Menu blink line (status + time until break only; no elapsed; icon focus-only) | Partial — superseded by **Menu bar progress** slice |
 
-### To build or replace (gaze pivot)
+### To build — Menu bar progress (issue 021)
 
 | Module | Responsibility |
 |--------|----------------|
-| **Gaze model artifact** | Ship pre-converted Core ML (`.mlpackage`) derived from `models/mobilenetv2_gaze.onnx`; conversion is a one-time dev/build step, not at app runtime. |
-| **GazeEngine** (replaces heuristic **HeadPoseEngine** inference path) | Webcam capture, fixed **Camera mirroring**, Vision face rectangles, face crop preprocess, Core ML inference → yaw/pitch; derive **On-display attention** from pitch; expose `GazeSample` stream at low FPS in memory. |
-| **CalibrationStore** | Persist left/right yaw thresholds (and optional center) from D1/D2 steps; load on session start. |
-| **Calibration flow** | Menu-driven: on first session without store, block gaze switching until D1 then D2 samples collected; **Recalibrate** clears and reruns. |
-| **CalibratedGazeMapping** | **GazeStateMachine** (or mapper) uses stored thresholds instead of global `yawThresholdRadians` alone. |
-| **SessionCoordinator** | Wire **GazeEngine** + calibration gate + existing state machine and focus path. |
+| **SessionCoordinator** | Already publishes `blinkAccumulatedSeconds`, `blinkSecondsUntilBreak`, `blinkBreakInterval`, `blinkIsIdle`, `blinkRemindersPaused` — consume for display formatting only. |
+| **Menu bar icon title** | Combine display focus with **Menu bar progress**: e.g. `Display Focus · D1 · Obsidian · 12/60` or compact `D1 · 12/60` if space tight. |
+| **Menu dropdown** | Replace single-line blink status with **Blink status** + elapsed + remaining: e.g. `Active: 12m · Break in: 48m`; prefix `idle` or `paused` when applicable; fraction frozen per CONTEXT.md. |
 
-**Technology**
+**Formatting rules**
 
-- Core ML for **Gaze estimation model** inference; Vision for face detection only.
-- No Python or ONNX runtime in the shipping app.
-- Preprocess face crop to match MobileGaze training expectations (document input size/normalization in issue notes).
+- Progress fraction: `floor(activeMinutes) / floor(intervalMinutes)` or equivalent using accumulated seconds vs **Eye break interval**; use minutes for display when interval ≥ 60 s.
+- Icon shows fraction frozen when idle or paused.
 
-**Parameters (retain unless calibration supersedes)**
+### To build — Focus stack and Rotate (issues 022–023)
 
-- Medium dwell ~0.9 s; 4 stable frames at ~5 FPS before dwell timer.
-- Focus lock unchanged.
-- Global yaw threshold remains fallback until calibration exists.
+| Module | Responsibility |
+|--------|----------------|
+| **FocusHistory** (extend) | Per-**Display** ordered stack of **AppRef**; dedupe on record (move to top); `stack(display)`, `lastFocused`, `nextForRotate(display, currentApp)`, `remove(app)`, `pruneTerminated()`. |
+| **FocusController** | On activate: if target **Display** equals current keyboard **Display** and stack has >1 app, activate **Rotate** target instead of top only. |
+| **AppModel / hotkey path** | Pass current focused app and display into activation decision. |
+| **App termination observer** | On app quit, remove from all **Focus stacks** (eager prune). |
 
-**Permissions UX**
+**Rotate decision (pure core)**
 
-- Unchanged: Camera + Accessibility on first use; menu shows blocked states.
+```
+on Display switch chord for display D:
+  if currentFocusDisplay == D and stack(D).count > 1:
+    activate next app in stack after current (wrap)
+  else:
+    activate top of stack(D)  // existing behavior
+  if stack(D).count == 1 and currentFocusDisplay == D:
+    no-op
+```
 
-### Out of scope for this PRD
+**Constants**
 
-- Retraining or fine-tuning the gaze model on device
-- Window- or region-level gaze
-- Three+ display switching (warn/disable only)
-- Dedicated eye-tracking hardware
-- Cloud inference or frame upload
-- Flutter / web control plane
-- Login item auto-start
-- Persisting last-focused apps across sessions
-- Cmd+Tab suppression window
-- User-configurable dwell or pause chord in UI
-- ONNX inference at runtime in Swift
+- Stack depth: unlimited session apps per **Display** (typically 2–3 in practice).
+- No menu list of stack apps.
+
+### Permissions
+
+Unchanged: **Accessibility** for activation; **Input Monitoring** may be required for blink input tracking.
+
+### Interaction between subsystems
+
+- **Menu bar progress** and **Rotate** are independent; both share icon title space — prioritize compact fraction alongside **Display** indicator.
+- **Blink time overlay** blocks input; does not affect **Focus stack**.
 
 ## Testing Decisions
 
-**Good tests**: Observable inputs/outputs at module boundaries; no real webcam, Core ML, or Accessibility in unit tests.
+**Good tests**: Observable inputs/outputs at module boundaries; no real Accessibility or overlay windows in unit tests.
 
 | Module | Test approach |
 |--------|----------------|
-| **GazeStateMachine** | Keep self-check: dwell, lock, attention gating; add cases for **calibrated** left/right thresholds. |
-| **CalibrationStore** / mapper | Pure tests: given recorded D1/D2 yaw samples → expected thresholds → correct display mapping. |
-| **DisplayMonitor**, **FocusHistory** | Existing patterns; unchanged. |
-| **GazeEngine**, **FocusController** | Manual on hardware with Camera + Accessibility; smoke test that session starts and menu shows gaze status. |
+| **FocusHistory** / **Focus stack** | **DisplayFocusSelfCheck**: record order, dedupe move-to-top, remove on prune, `nextForRotate` wrap, single-app no-op index, empty stack. |
+| **ActiveUsageTracker** | Existing self-check; unchanged. |
+| **Menu bar progress** | Manual: icon shows `D1 · 12/60`; dropdown shows elapsed + remaining; frozen when idle/paused; updates with **Break interval** preset change. |
+| **Rotate** | Manual on dual-display hardware: cross-display → top; same display repeat → cycle; quit app → skipped on rotate. |
 
-**MVP success test (manual)**: `issues/MVP-SESSION-CHECKLIST.md` — 30+ minute dual-display session after gaze model + calibration are integrated; note pause and Command+Tab frequency.
+**Seams (highest first)**
+
+1. **FocusHistory** stack + rotate index — **DisplayFocusSelfCheck** (new).
+2. **Menu bar formatting** — manual via menu and icon (data already on **SessionCoordinator**).
+3. **Rotate** end-to-end — manual hotkey on hardware with Accessibility.
+
+Prior art: **DisplayFocusSelfCheck** for **FocusHistory** (single-app), **ActiveUsageTracker** (016).
 
 ## Out of Scope
 
-- Vision-only head pose as the primary gaze signal (replaced)
-- Per-user model training
-- Window-level focus
-- Third+ display switching
-- Eye tracker hardware
-- Network APIs
-- Login item
-- Cross-session last-focused persistence
-- Runtime ONNX in the app
+- **Focus stack** list or clickable apps in the menu
+- Slot-based hotkeys (**⌘⌥⇧N**) — **Rotate** only
+- Window-level or region-level focus
+- Third+ **Display** switching (warn/disable; overlays still cover all screens)
+- Webcam, gaze, ML, cloud
+- Persisting **Focus stack** or **Active usage time** across restarts
+- User-configurable **Idle threshold** or **Overlay duration** in UI ( **Eye break interval** presets in menu are in scope and done)
 
 ## Further Notes
 
-- Domain glossary: `CONTEXT.md` (gaze model, calibration heuristics, webcam, camera mirroring).
-- Upstream model: [yakhyo/gaze-estimation](https://github.com/yakhyo/gaze-estimation) MobileNetV2; weights in `models/mobilenetv2_gaze.onnx`.
-- Issues `000`–`008` in `issues/done/` delivered the heuristic MVP shell; issues `011+` deliver the gaze pivot.
-- Issue `009` (debug capture) applies to the new gaze pipeline, not head-pose heuristics.
-- Issue `010` (MVP readiness) completes after gaze integration and a real hardware session.
+- Domain glossary: `CONTEXT.md` (includes **Focus stack**, **Rotate**, **Menu bar progress**, **Blink status**).
+- Blink baseline delivered in issues `016`–`020`.
+- New work: issues `021`–`023`.
+- Implementation order: `021` (menu progress) then `022` → `023` (**Focus stack** then **Rotate**); `021` and `022` can run in parallel.

@@ -8,6 +8,7 @@ enum FocusActivationResult {
     case notDual
     case accessibilityDenied
     case noAppFound
+    case noOp
 }
 
 @MainActor
@@ -21,12 +22,18 @@ enum FocusController {
     static func requestAccessibilityIfNeeded() {
         guard !hasRequestedAccessibility else { return }
         hasRequestedAccessibility = true
+        guard !AXIsProcessTrusted() else { return }
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         let options = [key: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }
 
-    static func activate(display: DisplayNumber, history: FocusHistory) -> FocusActivationResult {
+    static func activate(
+        display: DisplayNumber,
+        history: FocusHistory,
+        currentFocusDisplay: DisplayNumber?,
+        currentAppBundleId: String?
+    ) -> FocusActivationResult {
         guard DisplayMonitor.currentDisplays() != .notDual else { return .notDual }
 
         requestAccessibilityIfNeeded()
@@ -36,6 +43,22 @@ enum FocusController {
 
         guard let bounds = DisplayMonitor.dualDisplayBounds() else {
             return .notDual
+        }
+
+        if currentFocusDisplay == display {
+            let stack = history.stack(for: display)
+            if stack.count <= 1 {
+                Log.info("D\(display.rawValue): only one app")
+                return .noOp
+            }
+            let currentBundle = currentAppBundleId ?? NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+            if let currentBundle {
+                let current = AppRef(bundleIdentifier: currentBundle)
+                if case .next(let nextApp) = history.nextForRotate(display: display, currentApp: current),
+                   let result = activateBundleId(nextApp.bundleIdentifier, display: display, history: history) {
+                    return result
+                }
+            }
         }
 
         var candidates: [String] = []
@@ -70,14 +93,24 @@ enum FocusController {
 
         var seen = Set<String>()
         for bundleId in candidates where seen.insert(bundleId).inserted {
-            guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else {
-                continue
+            if let result = activateBundleId(bundleId, display: display, history: history) {
+                return result
             }
-            guard app.activate(options: [.activateIgnoringOtherApps]) else { continue }
-            history.recordFocusChange(app: AppRef(bundleIdentifier: bundleId), display: display)
-            return .activated(appName: app.localizedName)
         }
         return .noAppFound
+    }
+
+    private static func activateBundleId(
+        _ bundleId: String,
+        display: DisplayNumber,
+        history: FocusHistory
+    ) -> FocusActivationResult? {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first else {
+            return nil
+        }
+        guard app.activate(options: [.activateIgnoringOtherApps]) else { return nil }
+        history.recordFocusChange(app: AppRef(bundleIdentifier: bundleId), display: display)
+        return .activated(appName: app.localizedName)
     }
 
 }
@@ -88,7 +121,7 @@ enum FocusController {
 final class FocusObserver {
     private let history: FocusHistory
     private var observer: NSObjectProtocol?
-    var onFocusRecorded: ((DisplayNumber, String) -> Void)?
+    var onFocusRecorded: ((DisplayNumber, String, String) -> Void)?
 
     init(history: FocusHistory) {
         self.history = history
@@ -129,7 +162,7 @@ final class FocusObserver {
         }
         history.recordFocusChange(app: AppRef(bundleIdentifier: bundleId), display: display)
         let name = app.localizedName ?? bundleId
-        onFocusRecorded?(display, name)
+        onFocusRecorded?(display, name, bundleId)
         Log.info("system D\(display.rawValue) → \(name)")
     }
 

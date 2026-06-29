@@ -28,22 +28,27 @@ final class HotkeyService {
     func start() {
         guard handlerRef == nil else { return }
 
+        let eventTarget = GetEventDispatcherTarget()
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
             eventKind: UInt32(kEventHotKeyPressed)
         )
         let userData = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(
-            GetApplicationEventTarget(),
+        let status = InstallEventHandler(
+            eventTarget,
             hotKeyCallback,
             1,
             &eventType,
             userData,
             &handlerRef
         )
+        guard status == noErr, handlerRef != nil else {
+            Log.info("hotkey handler install failed err=\(status)")
+            return
+        }
 
         for binding in Self.bindings {
-            register(keyCode: binding.keyCode, action: binding.action)
+            register(keyCode: binding.keyCode, action: binding.action, eventTarget: eventTarget)
         }
     }
 
@@ -56,19 +61,21 @@ final class HotkeyService {
         }
     }
 
-    private func register(keyCode: UInt32, action: Action) {
+    private func register(keyCode: UInt32, action: Action, eventTarget: EventTargetRef?) {
         var ref: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: Self.signature, id: action.rawValue)
-        let status = RegisterEventHotKey(keyCode, Self.modifiers, hotKeyID, GetApplicationEventTarget(), 0, &ref)
+        let status = RegisterEventHotKey(keyCode, Self.modifiers, hotKeyID, eventTarget, 0, &ref)
         guard status == noErr, let ref else {
             Log.info("hotkey register failed action=\(action.rawValue) err=\(status)")
             return
         }
         hotKeyRefs[action.rawValue] = ref
+        Log.info("hotkey registered action=\(action.rawValue)")
     }
 
     fileprivate func handleHotKey(id: UInt32) {
         guard let action = Action(rawValue: id) else { return }
+        Log.info("hotkey pressed action=\(id)")
         handlers[action]?()
     }
 }

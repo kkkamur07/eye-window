@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import DisplayFocusCore
 
@@ -6,50 +7,86 @@ struct DisplayFocusApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra(statusTitle(model.coordinator), systemImage: "rectangle.on.rectangle") {
+        MenuBarExtra {
             menuContent
+        } label: {
+            menuBarLabel
         }
         .menuBarExtraStyle(.menu)
     }
 
-    private func statusTitle(_ coordinator: SessionCoordinator) -> String {
-        var parts: [String] = []
-        if let display = coordinator.currentFocusDisplay {
-            parts.append("D\(display.rawValue)")
+    private var menuBarLabel: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "eye")
+            if let progress = menuBarProgressFraction(model.coordinator) {
+                Text(progress)
+                    .font(.caption2)
+            }
         }
-        if let app = coordinator.activeAppName {
-            parts.append(shortName(app))
-        }
-        if parts.isEmpty { return "Display Focus" }
-        return "Display Focus · " + parts.joined(separator: " ")
     }
 
-    private func shortName(_ name: String) -> String {
-        name.count <= 14 ? name : String(name.prefix(13)) + "…"
+    private func menuBarProgressFraction(_ coordinator: SessionCoordinator) -> String? {
+        let interval = coordinator.blinkBreakInterval
+        guard interval > 0 else { return nil }
+        let elapsed = coordinator.blinkAccumulatedSeconds
+        if interval < 60 {
+            let num = max(0, Int(elapsed.rounded(.down)))
+            let den = max(1, Int(interval.rounded()))
+            return "\(num)/\(den)"
+        }
+        let num = max(0, Int((elapsed / 60).rounded(.down)))
+        let den = max(1, Int((interval / 60).rounded()))
+        return "\(num)/\(den)"
+    }
+
+    private func formatDuration(_ seconds: TimeInterval, roundUp: Bool = false) -> String {
+        if seconds < 60 {
+            let secs = max(0, Int((roundUp ? ceil(seconds) : seconds.rounded(.down))))
+            return secs == 1 ? "1s" : "\(secs)s"
+        }
+        let totalMinutes = max(0, Int((roundUp ? ceil(seconds / 60) : (seconds / 60).rounded(.down))))
+        if totalMinutes >= 60 {
+            let hours = totalMinutes / 60
+            let minutes = totalMinutes % 60
+            if minutes == 0 { return "\(hours)h" }
+            return "\(hours)h \(minutes)m"
+        }
+        return totalMinutes == 1 ? "1m" : "\(totalMinutes)m"
     }
 
     @ViewBuilder
     private var menuContent: some View {
         let coordinator = model.coordinator
+        let blinkDisabled = coordinator.blinkBreakTriggered
 
-        if let display = coordinator.currentFocusDisplay {
-            Text("Focus: D\(display.rawValue) · \(coordinator.activeAppName ?? "—")")
-                .font(.caption)
-        } else {
-            Text("Focus: unknown").font(.caption).foregroundStyle(.secondary)
-        }
-
-        Text(coordinator.displayLayout == .notDual ? "Connect exactly 2 displays" : "Dual displays · hotkeys active")
+        Text(blinkReminderStatus(coordinator))
             .font(.caption)
-            .foregroundStyle(coordinator.displayLayout == .notDual ? .orange : .secondary)
+            .foregroundStyle(blinkReminderColor(coordinator))
 
-        if coordinator.isAccessibilityBlocked {
-            Text("Accessibility required").font(.caption).foregroundStyle(.orange)
+        Picker("Tracking mode", selection: Binding(
+            get: { coordinator.blinkTrackingMode },
+            set: { model.setBlinkTrackingMode($0) }
+        )) {
+            ForEach(BlinkTrackingMode.allCases, id: \.self) { mode in
+                Text(mode.menuLabel).tag(mode)
+            }
         }
+        .disabled(blinkDisabled)
 
-        Text("⌘⌥1 → display 1   ⌘⌥2 → display 2")
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+        Picker("Break interval", selection: Binding(
+            get: { coordinator.blinkBreakInterval },
+            set: { model.setBlinkBreakInterval($0) }
+        )) {
+            ForEach(BlinkBreakIntervalPreset.allCases) { preset in
+                Text(preset.menuLabel).tag(preset.breakInterval)
+            }
+        }
+        .disabled(blinkDisabled)
+
+        Button(coordinator.blinkRemindersPaused ? "Resume blink reminders" : "Pause blink reminders") {
+            model.setBlinkRemindersPaused(!coordinator.blinkRemindersPaused)
+        }
+        .disabled(blinkDisabled)
 
         if !coordinator.recentLogLines.isEmpty {
             Divider()
@@ -72,5 +109,25 @@ struct DisplayFocusApp: App {
         }
 
         Button("Quit") { NSApplication.shared.terminate(nil) }
+    }
+
+    private func blinkReminderStatus(_ coordinator: SessionCoordinator) -> String {
+        let status: String
+        if coordinator.blinkRemindersPaused {
+            status = "paused"
+        } else if coordinator.blinkTrackingMode == .activity, coordinator.blinkIsIdle {
+            status = "idle"
+        } else {
+            status = "running"
+        }
+        let elapsed = formatDuration(coordinator.blinkAccumulatedSeconds)
+        let remaining = formatDuration(coordinator.blinkSecondsUntilBreak, roundUp: true)
+        return "Blink reminders: \(status) · Elapsed: \(elapsed) · Remaining: \(remaining)"
+    }
+
+    private func blinkReminderColor(_ coordinator: SessionCoordinator) -> Color {
+        if coordinator.blinkRemindersPaused { return .secondary }
+        if coordinator.blinkTrackingMode == .activity, coordinator.blinkIsIdle { return .orange }
+        return .secondary
     }
 }

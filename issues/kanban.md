@@ -1,11 +1,10 @@
 # Kanban
 
-> Regenerated 2026-05-20
+> Regenerated 2026-06-29
 
 ## Ready (AFK)
 
-- [ ] [009-optional-debug-capture](009-optional-debug-capture.md)
-- [ ] [010-mvp-readiness](010-mvp-readiness.md)
+_(none)_
 
 ## Ready (HITL)
 
@@ -13,16 +12,17 @@ _(none)_
 
 ## In progress
 
-_(none)_
+_(WIP 0/4)_
 
 ## Review
 
-_(none — gaze pivot issues moved to `issues/done/`)_
+_(none)_
 
 ## Done
 
-See `issues/done/` (000–008, 011–015).
+See `issues/done/` (000–008, 011–023).
 
 ## Backlog
 
-_(empty)_
+- [ ] [009-optional-debug-capture](009-optional-debug-capture.md) — superseded
+- [ ] [010-mvp-readiness](010-mvp-readiness.md) — superseded

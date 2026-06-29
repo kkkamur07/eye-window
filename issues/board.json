@@ -1,50 +1,27 @@
 {
-  "generated_at": "2026-05-20T12:00:00Z",
+  "generated_at": "2026-06-29T12:00:00Z",
   "limits": { "in_progress": 4, "review": 5, "parallel_lanes": 2 },
   "counts": { "in_progress": 0, "review": 0 },
   "stats": {
     "total": 2,
-    "ready_afk": 2,
+    "ready_afk": 0,
     "ready_hitl": 0,
-    "blocked": 0,
-    "done": 14
+    "blocked": 2,
+    "done": 23
   },
   "dag": {
-    "mermaid": "flowchart TD\n  i015[\"done/015-gaze-pipeline-e2e\"] --> i009[\"009-debug-capture\"]\n  i015 --> i010[\"010-mvp-readiness\"]",
-    "parallel_lanes": [
-      ["009-optional-debug-capture.md"],
-      ["010-mvp-readiness.md"]
-    ]
+    "mermaid": "flowchart TD\n  i009[\"009-optional-debug-capture\"]\n  i010[\"010-mvp-readiness\"]",
+    "parallel_lanes": []
   },
   "kanban": {
     "columns": [
       {
-        "name": "Ready (AFK)",
-        "over_limit": false,
-        "issues": [
-          { "file": "009-optional-debug-capture.md", "title": "optional-debug-capture", "type": "AFK" },
-          { "file": "010-mvp-readiness.md", "title": "mvp-readiness", "type": "AFK" }
-        ]
-      },
-      {
-        "name": "Ready (HITL)",
-        "over_limit": false,
-        "issues": []
-      },
-      {
-        "name": "In progress",
-        "over_limit": false,
-        "issues": []
-      },
-      {
-        "name": "Review",
-        "over_limit": false,
-        "issues": []
-      },
-      {
         "name": "Backlog",
         "over_limit": false,
-        "issues": []
+        "issues": [
+          { "file": "009-optional-debug-capture.md", "id": "009", "type": "AFK", "title": "optional-debug-capture", "note": "superseded" },
+          { "file": "010-mvp-readiness.md", "id": "010", "type": "AFK", "title": "mvp-readiness", "note": "superseded" }
+        ]
       }
     ]
   }

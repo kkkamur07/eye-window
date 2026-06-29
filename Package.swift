@@ -16,7 +16,11 @@ let package = Package(
             name: "DisplayFocus",
             dependencies: ["DisplayFocusCore"],
             exclude: ["Info.plist"],
-            linkerSettings: [.linkedFramework("ApplicationServices"), .linkedFramework("Carbon")]
+            resources: [.process("Resources")],
+            linkerSettings: [
+                .linkedFramework("ApplicationServices"),
+                .linkedFramework("Carbon"),
+            ]
         ),
     ]
 )
